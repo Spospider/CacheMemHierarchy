@@ -38,6 +38,8 @@ class cache {
     //stats
     int accesses = 0;
     int hits = 0;
+    
+    bool missed = 0;
 
     cache() {
         entryCycles = 0;
@@ -66,26 +68,33 @@ class cache {
             int t = temp;
             t >>= int(log2(Size));
             if (entries[x].tag == t) {
-                cyclestaken += entryCycles;
-                cout << "HIT" << endl;
-                hits++;
-                accesses++;
+                if (!missed) {
+                   cout << "HIT L" << cacheLvl << endl;
+                   hits++;
+                   accesses++;
+                   cyclestaken += entryCycles;
+                }
                 return entries[x].data[offset];
             }
             else {
                 getFromUpper(temp, cyclestaken); // complete here
-                cyclestaken += entryCycles;
+                //cyclestaken += entryCycles;
+                hits--;
+                missed = 0;
                 return getEntry(addr, cyclestaken);
             }
         }
         else {
             getFromUpper(temp, cyclestaken);
-            cyclestaken += entryCycles;
+            //cyclestaken += entryCycles;
+            hits--;
+            missed = 0;
             return getEntry(addr, cyclestaken);
         }
     }
 
     void getFromUpper(int addr, int& cyclestaken) {
+        missed = 1;
         cout << "MISS    ";
         if (upperlvlCache) { // get from upper cache
             
@@ -93,12 +102,14 @@ class cache {
             int tag = addr;
             tag >>= int(log2(Size));
             addr <<= int(log2(LineSize));
-            cout  <<  "requesting line ";
+            cout << "requesting line ";
             cout << hex << addr;
             cout << dec << " from cache level " << cacheLvl + 1 << endl; 
             for (int i = 0; i < LineSize; i++) {
                 entries[index].data[i] = upperlvlCache->getEntry(addr + i, cyclestaken);
+                upperlvlCache->missed = 1;
             }
+            upperlvlCache->missed = 0;
             entries[index].valid = 1;
             entries[index].tag = tag;
         }
@@ -107,7 +118,7 @@ class cache {
             int tag = addr;
             tag >>= int(log2(Size));
             addr <<= int(log2(LineSize));
-            cout  <<  "requesting line ";
+            cout << "requesting line ";
             cout << hex << addr;
             cout << dec << " from Memory" << endl; 
             for (int i = 0; i < LineSize; i++) {
@@ -126,7 +137,7 @@ class cache {
     
     void printData() {
         cout << "L" << cacheLvl << " Cache" << endl;
-        cout << "Valid" << '\t' << "Tag" << '\t' << "Index" << '\t' << "Data" << endl;
+        cout << "Valid" << '\t' << "Tag" << '\t' << "Index" << '\t' << "Data (bytes)" << endl;
         for (int i= 0; i < entries.size(); i++) {
             cout << entries[i].valid << '\t' <<  hex << entries[i].tag << '\t' << dec <<  entries[i].index << '\t';   // std::bitset<16>(entries[i].tag)   for binary
             for(int j=0; j < entries[i].data.size(); j++) {
@@ -176,7 +187,7 @@ int main() {
     preloadData(n); // load intitial data
     
     cout << "Enter the number of cache levels" << endl;
-    int lvls = 1;
+    int lvls = 2;
     //cin >> lvls;
     cache* caches = new cache[lvls];
 
@@ -184,13 +195,13 @@ int main() {
     for (int i = 1 ; i <= lvls; i++) {
         cout << "Enter the cache size for cache L" << i << ": (number of form 2^n)" << endl;
         int size = 4;
-        //cin >> size;
-        cout << "PEnter the cache line size for cache L" << i << ": (number of form 2^n)" << endl;
+        cin >> size;
+        cout << "Enter the cache line size for cache L" << i << ": (number of form 2^n)" << endl;
         int lineSize = 4;
-        //cin >> lineSize;
+        cin >> lineSize;
         cout << "Enter the number of cycles needed to access the cache (1 to 10) :" << endl;
         int cycles = 10;
-        //cin >> cycles;
+        cin >> cycles;
         cache c(size, lineSize, i, cycles);
         caches[i-1] = c;
         if (i >= 2) {
