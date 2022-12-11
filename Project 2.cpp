@@ -291,12 +291,12 @@ int main() {
     cout << "Welcome to the memory hierarchy simulator!" << endl << endl;
     cout << "Please enter the filename of the file containing the initial memory content:" << endl;
     string n = "preload.txt";
-    //cin >> n;
+    cin >> n;
     preloadData(n); // load intitial data
     
     cout << "Enter the number of cache levels" << endl;
     int lvls = 2;
-    //cin >> lvls;
+    cin >> lvls;
     cache* caches = new cache[lvls];
 
     cout << "(L1 cache is closest to CPU)" << endl << endl;
@@ -318,9 +318,9 @@ int main() {
         }
     }
     
-    cout << "Enter the name fo the file contatining the access sequence. (eg. input.txt)" << endl;
+    cout << "Enter the name of the file contatining the access sequence. (eg. input.txt)" << endl;
     string seqname = "sequence.txt";
-    //cin >> seqname;
+    cin >> seqname;
     readSeq(seqname);
 
     float cyclessum;
