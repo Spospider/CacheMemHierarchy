@@ -10,15 +10,22 @@ using namespace std;
 
 map<int, int> memory;
 vector<int> sequence;
+vector<int> writes; // stores the index of write instructions
+vector<int> writeData;
+
+bool writeThrough = 0;
+bool WA = 0; //write allocate 
 class cacheEntry {
     public:
     bool valid;
+    bool dirty;
     int tag;
     int index;
     vector<int> data; // vector for num of blocks / line size
 
     cacheEntry(bool v, int t, int i, int datasize) { // create the bytes
         valid = v; tag = t; index = i;
+        dirty = 0;
         for (int i = 0; i < datasize; i++) {
             data.push_back(0);
         }
@@ -97,7 +104,6 @@ class cache {
         missed = 1;
         cout << "MISS    ";
         if (upperlvlCache) { // get from upper cache
-            
             int index = addr % Size;
             int tag = addr;
             tag >>= int(log2(Size));
@@ -106,11 +112,19 @@ class cache {
             cout << hex << addr;
             cout << dec << " from cache level " << cacheLvl + 1 << endl; 
             for (int i = 0; i < LineSize; i++) {
+                if (!writeThrough && entries[index].dirty && upperlvlCache) { // if write back
+                    int oldaddr = entries[index].tag;
+                    oldaddr <<= int(log2(Size));
+                    oldaddr += index;
+                    oldaddr <<= int(log2(LineSize));
+                    upperlvlCache->write(oldaddr + i, entries[index].data[i], cyclestaken);
+                }
                 entries[index].data[i] = upperlvlCache->getEntry(addr + i, cyclestaken);
                 upperlvlCache->missed = 1;
             }
             upperlvlCache->missed = 0;
             entries[index].valid = 1;
+            entries[index].dirty = false;
             entries[index].tag = tag;
         }
         else { // get from memory
@@ -122,6 +136,13 @@ class cache {
             cout << hex << addr;
             cout << dec << " from Memory" << endl; 
             for (int i = 0; i < LineSize; i++) {
+                if (!writeThrough && entries[index].dirty) { // if write back
+                    int oldaddr = entries[index].tag;
+                    oldaddr <<= int(log2(Size));
+                    oldaddr += index;
+                    oldaddr <<= int(log2(LineSize));
+                    memory[oldaddr + i] = entries[index].data[i];
+                }
                 if (memory.find(addr + i) != memory.end()) {
                     entries[index].data[i] = memory[addr + i];
                 }
@@ -131,6 +152,7 @@ class cache {
             }
             entries[index].valid = 1;
             entries[index].tag = tag;
+            entries[index].dirty = false;
             cyclestaken += 100;
         }
     }
@@ -150,6 +172,82 @@ class cache {
         cout << "Hit ratio: " << float(hits) / accesses << endl;
         cout << "Miss ratio: " << 1-(float(hits) / accesses) << endl;
         cout << endl;
+    }
+
+    void write(int addr, int val, int& cyclestaken) {  
+        int temp = addr;
+        int offsetBits = int(log2(LineSize));
+        int offset = addr % LineSize;
+        temp >>= offsetBits; // temp = tag with index
+        int x = temp % Size; // index only
+        if (WA) {
+            if (entries[x].valid) {
+                int t = temp;
+                t >>= int(log2(Size));
+                if (entries[x].tag == t) {
+                    entries[x].data[offset] = val;
+                    entries[x].dirty = 1;
+                    cyclestaken += entryCycles;
+                    if (writeThrough) {
+                        if (memory[addr] != val) {
+                            memory[addr] = val;
+                            cyclestaken += 100;
+                        }
+                        if (upperlvlCache) {
+                            upperlvlCache->write(addr, val, cyclestaken);
+                        }
+                    }
+                    cout << "Write hit" << endl;
+                    return;
+                }
+                else { // write miss
+                    cout << "Write miss, fetching.." << endl;
+                    getEntry(addr, cyclestaken);
+                    write(addr, val, cyclestaken);
+                    return;
+                }
+            }
+            else { // write miss
+                cout << "Write miss, fetching.." << endl;
+                getEntry(addr, cyclestaken);
+                write(addr, val, cyclestaken);
+                return;
+            }
+        }
+        else {
+            if (entries[x].valid) {
+                int t = temp;
+                t >>= int(log2(Size));
+                if (entries[x].tag == t) {
+                    entries[x].data[offset] = val;
+                    entries[x].dirty = 1;
+                    cyclestaken += entryCycles;
+                    if (writeThrough) {
+                        if (memory[addr] != val) {
+                            memory[addr] = val;
+                            cyclestaken += 100;
+                        }
+                        if (upperlvlCache) {
+                            upperlvlCache->write(addr, val, cyclestaken);
+                        }
+                    }
+                    cout << "Write hit" << endl;
+                    return;
+                }
+                else { // write miss
+                    cout << "Write miss, writing to memory" << endl;
+                    memory[addr] = val;
+                    cyclestaken += 100;
+                    return;
+                }
+            }
+            else { // write miss
+                cout << "Write miss, writing to memory" << endl;
+                memory[addr] = val;
+                cyclestaken += 100;
+                return;
+            }
+        }
     }
 };
 
@@ -173,8 +271,18 @@ void preloadData(string name) {
 void readSeq(string name) {
     ifstream file(name);
     int t;
+    int i = 0;
     while(file >> std::hex >> t) {
         sequence.push_back(t);
+        char let;
+        file >> let;
+        if (let == 'w' || let == 'W') {
+            writes.push_back(i);
+            int val;
+            file >> val;
+            writeData.push_back(val);
+        }
+        i++;
     }
     file.close();
 }
@@ -216,13 +324,26 @@ int main() {
     readSeq(seqname);
 
     float cyclessum;
+
+    cout << "Choose the writing policy: (1 : write through, 0 : write back)" << endl;
+    cin >> writeThrough;
+    cout << "Choose the write miss policy: (1 : write allocate, 0 : no write allocate)" << endl;
+    cin >> WA;
     
+    int w = 0;
     for (int i = 0; i < sequence.size(); i++) {
         cout << "--------------------------------------------------" << endl;
-        cout << "Getting address: " << hex << sequence[i] << endl;
         int cyclesTaken = 0;
-        caches[0].getEntry(sequence[i], cyclesTaken);
-        cout << "Access time cycles: " << cyclesTaken << endl;
+        if (i != writes[w]) {
+            cout << "Getting address: " << hex << sequence[i] << endl;
+            caches[0].getEntry(sequence[i], cyclesTaken);
+        }
+        else {
+            cout << "Writing " << writeData[w] << " to address: " << hex << sequence[i] << endl;
+            caches[0].write(sequence[i], writeData[w], cyclesTaken);
+            w++;
+        }
+        cout << "Access time cycles: " << dec << cyclesTaken << endl;
         cyclessum += cyclesTaken;
         cout << "AMAT: " << cyclessum / (i+1) << endl << endl;
         
@@ -230,6 +351,8 @@ int main() {
             caches[x].printData();
         }
     }
+
+    cout << "-------------------END OF PROGRAM-------------------";
 
     return 0;
 }
